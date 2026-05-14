@@ -87,11 +87,11 @@ You should see an `initialize` response and a `tools/list` response with three t
 
 ### Usage patterns
 
-**Bulk classification.** Claude receives 50 emails and, in a single turn, classifies each by delegating to `ollama_chat` with a tight system prompt. Token cost on the orchestrator stays small.
+**Bulk classification.** Claude receives many items and, in a single turn, classifies each by delegating to `ollama_chat` with a tight system prompt. Token cost on the orchestrator stays small.
 
 **Structured extraction.** Claude asks `ollama_generate` to return a JSON object with specific fields from a long document. Claude validates the output and acts on it.
 
-**Confidential first pass.** Tender documents, client data, contracts: the first analytical pass stays inside the local network.
+**Confidential first pass.** Sensitive documents stay inside the local network: the local model handles initial parsing, classification, or summarization before the orchestrator sees anything.
 
 **Claude → Ollama → Claude cascade.** Claude plans and synthesizes; Ollama does the heavy repetitive work.
 
@@ -110,45 +110,69 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-## Català (notes per a l'equip APOGEA i col·legues del sector AECO)
+## Català
 
-### Per què t'interessa
+### Per què
 
-Claude (Opus) és potent però car en tokens. Per a tasques mecàniques i repetitives —classificar emails de licitacions, extreure dades de PDFs Tekton, generar microcontingut CRM en sèrie, fer primeres passades sobre plecs confidencials—, té molt més sentit delegar-les a un model local via Ollama. Aquest servidor és aquest pont.
+Els models frontera com Claude són potents però cada token té un cost. Per a feina mecànica, repetitiva o confidencial — classificar emails, extreure camps de PDFs, generar contingut amb plantilla en sèrie, primera passada sobre documents sensibles — surt molt més a compte delegar-la a un model local via Ollama. Aquest servidor és exactament aquest pont: petit, amb poques dependències, i pur en protocol.
 
-Pensat originalment per al **Taller IA APOGEA** i per a qualsevol professional del sector BIM/AECO que vulgui combinar Claude Desktop amb models locals.
+Sense servidor HTTP, sense banners, sense ports. JSON-RPC per stdio i prou. O funciona o no funciona, no hi ha estats intermedis per depurar.
 
-### Casos d'ús concrets en flux de feina BIM/AECO
+### Eines exposades
 
-**Auditoria BIM en cascada.** Claude orquestra una auditoria de 8 IFCs contra un BEP. Per a cada model, Claude llegeix els Psets via el teu MCP `auditor-bim` i delega la validació de propietats individuals a `ollama_chat` amb Qwen3.5 local. Claude només sintetitza els resultats i genera el dashboard React final. Estalvi típic: 70-90% dels tokens d'Opus en aquesta mena de feina.
+| Tool | Descripció |
+|---|---|
+| `ollama_list_models` | Llista models locals (i cloud si hi ha sessió iniciada) |
+| `ollama_chat` | Conversa amb un model. Accepta `model`, `prompt` i `system` opcional |
+| `ollama_generate` | Completar text en mode raw (sense format chat) |
 
-**Classificació d'emails ASICA / Infonalia.** En lloc de fer servir context d'Opus per llegir 50 alertes diàries de licitacions, Claude les passa una a una a Ollama amb un prompt curt ("classifica: BIM, GMAO, Genèric, Descartat") i només treballa amb el subset rellevant.
+### Requisits
 
-**Extracció de factures de proveïdors.** Skill `holded-invoices` combinat amb model local: Claude llegeix el PDF de la factura, en demana a Ollama un JSON amb proveïdor, NIF, base, IVA, total, i després crida l'API de Holded amb les dades validades.
+- **Node.js ≥ 18**
+- **Ollama** instal·lat i corrent ([ollama.com/download](https://ollama.com/download))
+- Almenys un model descarregat: `ollama pull qwen3:9b` (o el que prefereixis)
 
-**Generació de fitxes Tekton.** A partir de l'HTML exportat del càlcul d'instalacions, Ollama extreu les dades estructurades i Claude completa la plantilla DOCX de memòria.
+### Instal·lació
 
-### Models recomanats per al teu hardware
+```bash
+git clone https://github.com/JardiMargalefAgusti/ollama-mcp-stdio.git
+cd ollama-mcp-stdio
+npm install
+```
 
-Per a l'equip APOGEA i màquines similars (i7-14700K / 128 GB RAM / RTX 5070):
+### Configuració de Claude Desktop
 
-- **`qwen3:9b`** — Equilibri general. Bon raonament, segueix instruccions, JSON fiable.
-- **`gemma3:12b`** — Si vols més qualitat en redacció i no t'importa més latència.
-- **`deepseek-r1:8b`** — Per a tasques que requereixen raonament intern (problemes lògics, plans pas a pas).
-- **`nomic-embed-text`** — Quan afegim suport d'embeddings (cas d'ús RAG sobre plecs i normativa CTE).
+Edita el fitxer de configuració de Claude Desktop:
 
-### Integració amb la resta del teu stack
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-Aquest MCP encaixa amb tot el que ja tens muntat:
+Afegeix:
 
-- **Servo MCP** + Ollama → bridge complet per a treball amb fitxers locals sense Claude.
-- **MCPs APOGEA** (auditor-bim, BIM-Builder, Holded, Airtable, etc.) → Claude orquestra; Ollama fa les feines pesades de classificació i extracció dins de cada flow.
-- **Skills personalitzades** (`tekton-memoria-instalaciones`, `bim-audit`, `holded-ventas-airtable`...) → cada skill pot delegar passos mecànics a Ollama via aquest MCP.
+```json
+{
+  "mcpServers": {
+    "ollama": {
+      "command": "node",
+      "args": ["/ruta/absoluta/a/ollama-mcp-stdio/index.js"]
+    }
+  }
+}
+```
 
-### Per al Quim i altres companys
+Reinicia Claude Desktop. Les tres eines haurien d'aparèixer.
 
-Instal·lació pas a pas detallada al README en anglès més amunt. Si la part de configurar el `claude_desktop_config.json` no és clara, demana ajut directament a Agustí o al canal del Taller IA APOGEA.
+### Patrons d'ús
+
+**Classificació massiva.** Claude rep molts elements i, en un sol torn, classifica cada un delegant a `ollama_chat` amb un system prompt curt. El cost de tokens de l'orquestrador es manté baix.
+
+**Extracció estructurada.** Claude demana a `ollama_generate` que retorni un JSON amb camps específics d'un document llarg. Claude valida la sortida i actua.
+
+**Primera passada confidencial.** Documents sensibles queden dins la xarxa local: el model local fa el parsing inicial, la classificació o el resum abans que l'orquestrador en vegi res.
+
+**Cascada Claude → Ollama → Claude.** Claude planifica i sintetitza; Ollama fa la feina pesada repetitiva.
 
 ### Llicència
 
-MIT. Lliure d'ús, modificació i redistribució. Si fas un fork interessant, fes-m'ho saber.
+MIT — veure [LICENSE](LICENSE).
